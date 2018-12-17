@@ -6,15 +6,14 @@ from time import time
 
 import pandas as pd
 import numpy as np
+from datasketch import MinHash, MinHashLSHForest
 from nltk.stem.snowball import SnowballStemmer
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-class ContentBasedRecommender:
-    """This class contains content based recommendation algorithm, which will be used as a baseline when experimenting
-    with neural network bases approach.
-    """
+class ContentBasedParser:
+    """Base class for content based parsing ops.."""
     def __init__(self, features_path, keywords_path, enable_cache):
         assert isfile(keywords_path), "Wrong keywords path."
         self._keywords_path = keywords_path
@@ -22,9 +21,7 @@ class ContentBasedRecommender:
         self._features_path = features_path
 
         self._stemmer = SnowballStemmer('english')
-        self._count_vectorizer = CountVectorizer(analyzer='word', ngram_range=(1, 2), min_df=0, stop_words='english')
         self._titles = None
-        self._count_matrix = None
         self._indices = None
 
         # number of top actors taken into account
@@ -35,24 +32,24 @@ class ContentBasedRecommender:
         # enable caching creates a folder where similarities vectors and products of other compute heavy operations are
         # stored
         self._enable_cache = enable_cache
-        self._cache_dir = join(getcwd(), '.cache/')
-        # todo: implement similiarity scores cacheing
+        self._cache_dir = join(getcwd(), '.cache_{}/'.format(str(self.__class__.__name__)))
+        # todo: implement similarity scores caching
         if self._enable_cache:
             if not isdir(self._cache_dir):
                 mkdir(self._cache_dir)
-        
+
     def _parse_dataframes(self):
         """Loads, merges and parses data from .csv files"""
         # load dataframes
         features = pd.read_csv(self._features_path, sep=";")
         keywords = pd.read_csv(self._keywords_path, engine='python', error_bad_lines=False, encoding='utf-8')
-        
+
         # merge dataframes
         keywords = keywords.dropna()
         keywords['keywords'] = keywords['keywords'].apply(literal_eval)
         features = features.merge(keywords, on='title')
         features = features.drop_duplicates(subset='title')
-        
+
         # transform feature values
         features['genres'] = features['genres'].apply(lambda x: x.split('|') if isinstance(x, str) else np.nan)
         # add double significance for director
@@ -91,7 +88,6 @@ class ContentBasedRecommender:
                             + features['keywords'])
         features['soup'] = features['soup'].apply(lambda x: [str(elem).replace("'", "").
                                                   replace('"', '').replace(' ', '') for elem in x])
-        features['soup'] = features['soup'].apply(lambda x: ' '.join(x))
 
         return features
 
@@ -113,6 +109,22 @@ class ContentBasedRecommender:
             raise Exception("Wrong usage of serialization.")
 
     def _preprocess(self):
+        raise NotImplementedError
+
+    def get_recommendation(self, title, num_results=10):
+        raise NotImplementedError
+
+
+class ContentBasedRecommender(ContentBasedParser):
+    def __init__(self, *args, **kwargs):
+        super(ContentBasedRecommender, self).__init__(*args, **kwargs)
+
+        self._count_vectorizer = CountVectorizer(analyzer='word', ngram_range=(1, 2), min_df=0, stop_words='english')
+
+        self._count_matrix = None
+        self._sim_dir = None
+
+    def _preprocess(self):
         """Runs all necessary preprocessing steps."""
         filenames = {'count_matrix': self._count_matrix, 'titles': self._titles, 'indices': self._indices}
 
@@ -123,6 +135,7 @@ class ContentBasedRecommender:
             features = self._parse_dataframes()
             features = self._parse_keywords(features)
             features = self._create_soup(features)
+            features['soup'] = features['soup'].apply(lambda x: ' '.join(x))
 
             self._count_matrix = self._count_vectorizer.fit_transform(features['soup'])
 
@@ -142,7 +155,7 @@ class ContentBasedRecommender:
             sims.append((i, cosine_sim))
         return sorted(sims, key=lambda x: x[1], reverse=True)
 
-    def get_recommendation(self, title):
+    def get_recommendation(self, title, num_results=10):
         """Returns a list of titles sorted by relevance."""
         if not self._count_matrix:
             print("Data must be preprocessed on first run, please wait.")
@@ -159,4 +172,118 @@ class ContentBasedRecommender:
         print('Recommendation finished, took {} seconds'.format(stop - start))
         result = self._titles.iloc[movie_indices]
 
-        return result.tolist()
+        return result.tolist()[:num_results]
+
+    def get_all_similarities(self):
+
+        if not self._count_matrix:
+            print("Data must be preprocessed on first run, please wait.")
+            self._preprocess()
+
+        self._sim_dir = join(getcwd(), '.sims/')
+
+        if not isdir(self._sim_dir):
+            try:
+                mkdir(self._sim_dir)
+            except Exception:
+                print('Unable to create directory.')
+                return
+
+        for i, _ in enumerate(self._count_matrix):
+
+            temp_file_path = join(self._sim_dir, 'id_{}.sim.pkl'.format(str(i)))
+
+            if not isfile(temp_file_path):
+                try:
+                    sim_scores = self._get_similarity(i)
+                except Exception:
+                    print("Unable to compute similarity.")
+
+                try:
+                    with open(temp_file_path, 'wb') as f:
+                        dump(sim_scores, f)
+                except Exception as ex:
+                    print(str(ex))
+
+                del sim_scores
+
+
+class ContentBasedLSHRecommender(ContentBasedParser):
+    def __init__(self, features_path, keywords_path, permutations, enable_cache):
+        super(ContentBasedLSHRecommender, self).__init__(features_path, keywords_path, enable_cache)
+
+        self._features = None
+        self._forest = None
+        self._permutations = permutations
+
+    def _preprocess(self):
+        """Runs all necessary preprocessing steps."""
+        filenames = {'forest': self._forest, 'features': self._features, 'titles': self._titles,
+                     'indices': self._indices}
+
+        if self._enable_cache:
+            self._serialize(filenames, 'read')
+
+        if not (self._indices and self._features and self._titles):
+            features = self._parse_dataframes()
+            features = self._parse_keywords(features)
+            features = self._create_soup(features)
+            self._features = features
+
+            self._titles = features['title']
+
+            features = features.reset_index()
+            self._indices = pd.Series(features.index, index=features['title'])
+
+            self._forest = self._get_forest()
+
+            if self._enable_cache:
+                self._serialize(filenames, 'write')
+
+    def _get_forest(self):
+        start_time = time()
+
+        minhash = []
+
+        for tokens in self._features['soup']:
+            row_hash = MinHash(num_perm=self._permutations)
+            for token in tokens:
+                row_hash.update(token.encode('utf8'))
+            minhash.append(row_hash)
+
+        forest = MinHashLSHForest(num_perm=self._permutations)
+
+        for i, row_hash in enumerate(minhash):
+            forest.add(i, row_hash)
+
+        forest.index()
+
+        print('It took %s seconds to build forest.' % (time() - start_time))
+
+        return forest
+
+    def get_recommendation(self, title, num_results=10):
+
+        if self._features is None:
+            print("Data must be preprocessed on first run, please wait.")
+            self._preprocess()
+
+        start_time = time()
+
+        row = self._features.loc[self._features['title'] == title]
+        tokens = row['soup'].tolist()[-1]
+
+        min_hash = MinHash(num_perm=self._permutations)
+        for token in tokens:
+            min_hash.update(token.encode('utf8'))
+
+        idx_array = np.array(self._forest.query(min_hash, num_results))
+
+        if len(idx_array) == 0:
+            return None  # if your query is empty, return none
+
+        result = self._features.iloc[idx_array]['title']
+
+        print('It took %s seconds to query forest.' % (time() - start_time))
+
+        return result
