@@ -3,6 +3,8 @@ from pickle import dump, load
 from os.path import isfile, join, isdir
 from os import mkdir, getcwd
 from time import time
+from random import sample
+from itertools import combinations
 
 import pandas as pd
 import numpy as np
@@ -10,6 +12,7 @@ from datasketch import MinHash, MinHashLSHForest
 from nltk.stem.snowball import SnowballStemmer
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from scipy.sparse import save_npz
 
 
 class ContentBasedParser:
@@ -23,6 +26,7 @@ class ContentBasedParser:
         self._stemmer = SnowballStemmer('english')
         self._titles = None
         self._indices = None
+        self.local_ids = None
 
         # number of top actors taken into account
         self._top_actors = 3
@@ -147,11 +151,14 @@ class ContentBasedRecommender(ContentBasedParser):
             if self._enable_cache:
                 self._serialize(filenames, 'write')
 
-    def _get_similarity(self, idx):
+    def _get_similarity(self, idx_a, idx_b):
+        return cosine_similarity(self._count_matrix[idx_a], self._count_matrix[idx_b])
+
+    def _get_similarities(self, idx):
         """Returns a vector containing similarities between selected movie and all others."""
         sims = []
         for i, row in enumerate(self._count_matrix):
-            cosine_sim = cosine_similarity(self._count_matrix[idx], self._count_matrix[i])
+            cosine_sim = self._get_similarity(idx, i)
             sims.append((i, cosine_sim))
         return sorted(sims, key=lambda x: x[1], reverse=True)
 
@@ -165,7 +172,7 @@ class ContentBasedRecommender(ContentBasedParser):
         print("Recommendation starts ...")
         start = time()
         idx = self._indices[title]
-        sim_scores = self._get_similarity(idx)
+        sim_scores = self._get_similarities(idx)
         sim_scores = sim_scores[1:31]
         movie_indices = [i[0] for i in sim_scores]
         stop = time()
@@ -174,13 +181,38 @@ class ContentBasedRecommender(ContentBasedParser):
 
         return result.tolist()[:num_results]
 
-    def get_all_similarities(self):
+    def _gen_sims(self, num_samples=50):
 
+        subset = sample(self.local_ids, num_samples)
+        self.local_ids = [x for x in self.local_ids if x not in subset]
+
+        combs = combinations(subset, 2)
+
+        sims = {}
+
+        try:
+            for combination in combs:
+                idx_a, idx_b = combination
+                sims[combination] = self._get_similarity(idx_a, idx_b)[0][0]
+        except Exception as ex:
+            print(str(ex))
+
+        subset_hash = hash(frozenset(sims.items()))
+
+        try:
+            with open(join(self._sim_dir, 'batch_id_{}.pkl'.format(str(subset_hash))), 'wb') as f:
+                dump(sims, f)
+        except Exception as ex:
+            print(str(ex))
+
+        del sims
+
+    def create_dataset(self, num_subsets=10):
         if not self._count_matrix:
             print("Data must be preprocessed on first run, please wait.")
             self._preprocess()
 
-        self._sim_dir = join(getcwd(), '.sims/')
+        self._sim_dir = join(getcwd(), '.dataset/')
 
         if not isdir(self._sim_dir):
             try:
@@ -189,23 +221,19 @@ class ContentBasedRecommender(ContentBasedParser):
                 print('Unable to create directory.')
                 return
 
-        for i, _ in enumerate(self._count_matrix):
+        # serialize count matrix as .npz file with vectors
+        with open(join(self._sim_dir, 'movie_matrix.npz'), 'wb') as f:
+            save_npz(f, self._count_matrix)
 
-            temp_file_path = join(self._sim_dir, 'id_{}.sim.pkl'.format(str(i)))
+        # serialize indices as .csv file
+        self._indices.to_csv(join(self._sim_dir, 'indices.csv'))
 
-            if not isfile(temp_file_path):
-                try:
-                    sim_scores = self._get_similarity(i)
-                except Exception:
-                    print("Unable to compute similarity.")
+        ids = self._indices.tolist()
+        self.local_ids = ids[:]
 
-                try:
-                    with open(temp_file_path, 'wb') as f:
-                        dump(sim_scores, f)
-                except Exception as ex:
-                    print(str(ex))
-
-                del sim_scores
+        # generate similarities between vectors
+        for _ in range(num_subsets):
+            self._gen_sims()
 
 
 class ContentBasedLSHRecommender(ContentBasedParser):

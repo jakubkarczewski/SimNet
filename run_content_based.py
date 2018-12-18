@@ -35,4 +35,4 @@ if __name__ == "__main__":
         for i, result in enumerate(results):
             print('nr. {} -> {}'.format(str(i), result))
     else:
-        recommender.get_all_similarities()
+        recommender.create_dataset()
