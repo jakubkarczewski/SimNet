@@ -15,8 +15,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy.sparse import save_npz
 
 
-class ContentBasedParser:
-    """Base class for content based parsing ops.."""
+class BaseContentBaseRecommender:
+    """Base class for content based recommendation."""
     def __init__(self, features_path, keywords_path, enable_cache):
         assert isfile(keywords_path), "Wrong keywords path."
         self._keywords_path = keywords_path
@@ -119,7 +119,7 @@ class ContentBasedParser:
         raise NotImplementedError
 
 
-class ContentBasedRecommender(ContentBasedParser):
+class ContentBasedRecommender(BaseContentBaseRecommender):
     def __init__(self, *args, **kwargs):
         super(ContentBasedRecommender, self).__init__(*args, **kwargs)
 
@@ -127,6 +127,7 @@ class ContentBasedRecommender(ContentBasedParser):
 
         self._count_matrix = None
         self._sim_dir = None
+        self._sim_subdir = None
 
     def _preprocess(self):
         """Runs all necessary preprocessing steps."""
@@ -200,7 +201,7 @@ class ContentBasedRecommender(ContentBasedParser):
         subset_hash = hash(frozenset(sims.items()))
 
         try:
-            with open(join(self._sim_dir, 'batch_id_{}.pkl'.format(str(subset_hash))), 'wb') as f:
+            with open(join(self._sim_subdir, 'batch_id_{}.pkl'.format(str(subset_hash))), 'wb') as f:
                 dump(sims, f)
         except Exception as ex:
             print(str(ex))
@@ -212,7 +213,7 @@ class ContentBasedRecommender(ContentBasedParser):
             print("Data must be preprocessed on first run, please wait.")
             self._preprocess()
 
-        self._sim_dir = join(getcwd(), '.dataset/')
+        self._sim_dir = join(getcwd(), '.dataset_cb/')
 
         if not isdir(self._sim_dir):
             try:
@@ -226,17 +227,21 @@ class ContentBasedRecommender(ContentBasedParser):
             save_npz(f, self._count_matrix)
 
         # serialize indices as .csv file
-        self._indices.to_csv(join(self._sim_dir, 'indices.csv'))
+        self._indices.to_csv(join(self._sim_dir, 'indices.csv'), header=True)
 
         ids = self._indices.tolist()
         self.local_ids = ids[:]
+
+        self._sim_subdir = join(self._sim_dir, 'labels')
+        if not isdir(self._sim_subdir):
+            mkdir(self._sim_subdir)
 
         # generate similarities between vectors
         for _ in range(num_subsets):
             self._gen_sims()
 
 
-class ContentBasedLSHRecommender(ContentBasedParser):
+class ContentBasedLSHRecommender(BaseContentBaseRecommender):
     def __init__(self, features_path, keywords_path, permutations, enable_cache):
         super(ContentBasedLSHRecommender, self).__init__(features_path, keywords_path, enable_cache)
 
