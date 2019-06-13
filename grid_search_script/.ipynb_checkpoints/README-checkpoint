@@ -1,0 +1,1 @@
+usage: python arch_grid_search.py "path to .csv dataset" "path to results.pkl file" "path to sims.pkl file with pairs"
