@@ -23,8 +23,8 @@ def get_params_dict(optimized_model=False, best_pairs=False):
         'model_params': OPTIMIZED_PARAMS if optimized_model else BASE_PARAMS,
         'num_bits': (16, 32, 64, 128, 256, 512),
         'training': {
-            'val_split': 0.85,
-            'epochs': 30,
+            'val_split': 0.9,
+            'epochs': 50,
             'batch_size': 128
         }
     }

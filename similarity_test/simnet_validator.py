@@ -1,7 +1,6 @@
-"""It's all heavily WIP - please mind the crappy style."""
 # standard imports
 from time import time
-from random import sample, randint
+from random import sample, randint, shuffle
 from collections import defaultdict
 import pickle
 import os
@@ -112,7 +111,10 @@ class SimNetValidator:
         pairs = []
         labels = []
 
-        for movie in movie_sims:
+        movies = list(movie_sims.keys())
+        shuffle(movies)
+
+        for movie in movies:
             # get vector for particular movie
             movie_vec = self.dataset.loc[movie].values
 
