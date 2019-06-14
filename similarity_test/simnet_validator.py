@@ -185,8 +185,8 @@ class SimNetValidator:
         print('* Accuracy on test set: %0.2f%%' % (100 * te_acc))
 
         base_network.save(join(self.save_dir,
-                               f'model-num_bits:{num_bits}-arch:{model_name}'
-                               f'-num_pairs:{num_pairs}.hdf5'))
+                               f'model-num_bits:{num_bits}-num_pairs:'
+                               f'{num_pairs}.hdf5'))
         results = {
             'num_pairs': num_pairs,
             'acc_train': tr_acc,
