@@ -6,44 +6,28 @@ import matplotlib.pyplot as plt
 # keras imports
 from keras import backend as K
 
+OPTIMIZED_PARAMS = {'input_shape': [41], 'l1_shape': 96, 'l2_shape': 160,
+                    'l3_shape': 384, 'l4_shape': None, 'd1_rate': 0.0,
+                    'd2_rate': 0.25, 'distance': 'l1'}
 
-def get_model_names(one_model=False):
-    """Returns the function names of all the models used in testing."""
-    import models
-    model_names = [fun_name for fun_name in dir(models)
-                   if 'model' in fun_name]
-
-    if one_model:
-        return model_names[0]
-    else:
-        return model_names
+BASE_PARAMS = {'input_shape': [41], 'l1_shape': 60, 'l2_shape': 80,
+               'l3_shape': 100, 'l4_shape': None, 'd1_rate': 0.2,
+               'd2_rate': 0.2, 'distance': 'l1'}
 
 
-def get_params_dict():
+def get_params_dict(optimized_model=False, best_pairs=False):
     """Returns a dict with range of values for each parameter."""
     return {
-        'num_pairs': (25, 50, 75, 100, 125, 150),
+        'num_pairs': (50,) if best_pairs else (25, 50, 75, 100, 125, 150),
         'test_size': 100000,
-        'model_names': tuple(get_model_names()),
+        'model_params': OPTIMIZED_PARAMS if optimized_model else BASE_PARAMS,
         'num_bits': (16, 32, 64, 128, 256, 512),
         'training': {
             'val_split': 0.85,
-            'epochs': 20,
+            'epochs': 30,
             'batch_size': 128
         }
     }
-
-
-def euclidean_distance(vects):
-    """Compute euclidean distance."""
-    x, y = vects
-    sum_square = K.sum(K.square(x - y), axis=1, keepdims=True)
-    return K.sqrt(K.maximum(sum_square, K.epsilon()))
-
-
-def eucl_dist_output_shape(shapes):
-    shape1, shape2 = shapes
-    return shape1[0], 1
 
 
 def margin_loss(y_true, y_pred):
@@ -56,11 +40,6 @@ def compute_accuracy(y_true, y_pred):
     """Compute classification accuracy with a fixed threshold on distances."""
     pred = y_pred.ravel() > 0.5
     return np.mean(pred == y_true)
-
-
-def accuracy(y_true, y_pred):
-    """Compute classification accuracy with a fixed threshold on distances."""
-    return K.mean(K.equal(y_true, K.cast(y_pred > 0.5, y_true.dtype)))
 
 
 def plot_history(history, paths, seed=1):

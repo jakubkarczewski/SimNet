@@ -29,7 +29,7 @@ from keras import backend as K
 # internal imports
 from utils import *
 from dataset import get_dataset
-import models
+from models import build_model
 
 
 class SimNetValidator:
@@ -146,7 +146,7 @@ class SimNetValidator:
         return ((np.array(pairs_train), np.array(labels_train)),
                 (np.array(pairs_test), np.array(labels_test)))
 
-    def run_training(self, model_name, num_bits, num_pairs):
+    def run_training(self, num_bits, num_pairs):
         """Runs training for a specified test case and returns a trained model.
     """
         movie_sims = self.find_pairs()
@@ -155,26 +155,12 @@ class SimNetValidator:
         x_test = x_test.astype('float32')
         input_shape = [x_train.shape[-1]]
 
-        callable_model_name = getattr(models, model_name)
-        base_network = callable_model_name(input_shape, num_bits)
+        self.params['model_params']['l4_shape'] = num_bits
 
-        input_a = Input(shape=input_shape)
-        input_b = Input(shape=input_shape)
+        model, base_network = build_model(**self.params['model_params'])
 
-        processed_a = base_network(input_a)
-        processed_b = base_network(input_b)
+        early_stopping = EarlyStopping(patience=5, restore_best_weights=True)
 
-        # L1 distance
-        distance = Lambda(
-            lambda x: K.abs(x[0] - x[1]),
-            output_shape=lambda x: x[0])([processed_a, processed_b])
-
-        pred = Dense(1, activation='sigmoid')(distance)
-        model = Model(input=[input_a, input_b], outputs=[pred])
-
-        rms = RMSprop()
-        early_stopping = EarlyStopping(patience=2, restore_best_weights=True)
-        model.compile(loss=[margin_loss], optimizer=rms, metrics=['accuracy'])
         history = model.fit([x_train[:, 0], x_train[:, 1]], y_train,
                         batch_size=self.params['training']['batch_size'],
                         epochs=self.params['training']['epochs'],
@@ -206,7 +192,6 @@ class SimNetValidator:
             'acc_train': tr_acc,
             'acc_test': te_acc,
             'mae': None,    # will be filled by testing method
-            'model_name': model_name,
             'plot_paths': (acc_path, loss_path)
         }
 
@@ -327,16 +312,19 @@ class SimNetValidator:
 
 if __name__ == '__main__':
     start = time()
-    params = get_params_dict()
+    params = get_params_dict(optimized_model=True, best_pairs=True)
     all_results = dict()
     validator = SimNetValidator(params, dataset_path=sys.argv[1],
                                 save_dir=sys.argv[2])
     for num_pairs in validator.params['num_pairs']:
         for num_bits in validator.params['num_bits']:
-            model_name = get_model_names(one_model=True)
-            model, training_results = validator.run_training(num_bits=num_bits,
-                                                             num_pairs=num_pairs,
-                                                             model_name=model_name)
+            print(f'Testing num_pairs: {num_pairs}, num_bits: {num_bits}')
+
+            model, training_results = validator.run_training(
+                num_bits=num_bits,
+                num_pairs=num_pairs
+            )
+
             validator.compute_neural_hashes(model)
             scores = validator.compare(num_bits)
 
