@@ -335,6 +335,8 @@ if __name__ == '__main__':
                 # from_model=True
             )
 
+            continue
+
             validator.compute_neural_hashes(model)
             scores = validator.compare(num_bits)
 
