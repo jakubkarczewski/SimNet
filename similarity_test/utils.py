@@ -21,8 +21,8 @@ def get_params_dict(optimized_model=False, best_pairs=False):
         'num_pairs': (50,) if best_pairs else (25, 50, 75, 100, 125, 150),
         'test_size': 100000,
         'model_params': OPTIMIZED_PARAMS if optimized_model else BASE_PARAMS,
-        # 'num_bits': (16, 32, 64, 128, 256, 512),
-        'num_bits': (64, 256),
+        'num_bits': (16, 32, 64, 128, 256, 512),
+        # 'num_bits': (64, 256),
         'training': {
             'val_split': 0.9,
             'epochs': 100,

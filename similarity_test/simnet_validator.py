@@ -335,8 +335,6 @@ if __name__ == '__main__':
                 # from_model=True
             )
 
-            continue
-
             validator.compute_neural_hashes(model)
             scores = validator.compare(num_bits)
 
@@ -348,12 +346,14 @@ if __name__ == '__main__':
                 'minhash': {'mae': scores['minhash']}
             }
 
-            with open(f'pairs:{num_pairs}-bits:{num_bits}.pkl', 'wb') as f:
+            with open(
+                    join(validator.save_dir,
+                         f'pairs:{num_pairs}-bits:{num_bits}.pkl'), 'wb') as f:
                 pickle.dump(final_results, f)
 
             all_results[f'pairs:{num_pairs}-bits:{num_bits}'] = final_results
 
     print(f'Test took {(time() - start) // 60} minutes.')
 
-    with open('all_results.pkl', 'wb') as f:
+    with open(join(validator.save_dir, 'all_results.pkl', 'wb')) as f:
         pickle.dump(all_results, f)
