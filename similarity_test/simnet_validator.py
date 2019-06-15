@@ -11,18 +11,14 @@ import sys
 import pandas as pd
 import numpy as np
 from numpy.random import seed
-import matplotlib.pyplot as plt
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import jaccard_similarity_score
 from datasketch import WeightedMinHash, WeightedMinHashGenerator
 
 # DL imports
 from tensorflow import set_random_seed
-from keras.models import Model, load_model
-from keras.layers import Lambda, Input, Dense
-from keras.optimizers import RMSprop
+from keras.models import load_model
 from keras.callbacks import EarlyStopping
-from keras import backend as K
 
 
 # internal imports
@@ -148,54 +144,65 @@ class SimNetValidator:
         return ((np.array(pairs_train), np.array(labels_train)),
                 (np.array(pairs_test), np.array(labels_test)))
 
-    def run_training(self, num_bits, num_pairs):
+    def run_training(self, num_bits, num_pairs, from_model=False):
         """Runs training for a specified test case and returns a trained model.
     """
-        movie_sims = self.find_pairs()
-        (x_train, y_train), (x_test, y_test) = self.create_pairs(movie_sims,
-                                                                 num_pairs)
-        x_test = x_test.astype('float32')
-        input_shape = [x_train.shape[-1]]
+        model_path = join(self.save_dir, f'model-num_bits_{num_bits}-'
+        f'num_pairs_{num_pairs}.hdf5')
 
-        self.params['model_params']['l4_shape'] = num_bits
+        if from_model:
+            base_network = load_model(model_path)
+            results = {
+                'num_pairs': num_pairs,
+                'mae': None,    # will be filled by testing method
+            }
 
-        model, base_network = build_model(**self.params['model_params'])
+        else:
 
-        early_stopping = EarlyStopping(patience=5, restore_best_weights=True)
+            movie_sims = self.find_pairs()
+            (x_train, y_train), (x_test, y_test) = self.create_pairs(movie_sims,
+                                                                     num_pairs)
+            x_test = x_test.astype('float32')
+            input_shape = [x_train.shape[-1]]
 
-        history = model.fit([x_train[:, 0], x_train[:, 1]], y_train,
-                        batch_size=self.params['training']['batch_size'],
-                        epochs=self.params['training']['epochs'],
-                        validation_data=([x_test[:, 0], x_test[:, 1]], y_test),
-                        callbacks=[early_stopping],
-                        verbose=0)
+            self.params['model_params']['l4_shape'] = num_bits
 
-        acc_path = join(self.save_dir, f'history_acc_{num_pairs}-{num_bits}')
-        loss_path = join(self.save_dir, f'history_loss_{num_pairs}-{num_bits}')
+            model, base_network = build_model(**self.params['model_params'])
 
-        rnd_factor = randint(1, 100)
+            early_stopping = EarlyStopping(patience=15, restore_best_weights=True)
 
-        plot_history(history, (acc_path, loss_path),
-                     seed=num_bits*num_pairs+rnd_factor)
+            history = model.fit([x_train[:, 0], x_train[:, 1]], y_train,
+                            batch_size=self.params['training']['batch_size'],
+                            epochs=self.params['training']['epochs'],
+                            validation_data=([x_test[:, 0], x_test[:, 1]], y_test),
+                            callbacks=[early_stopping],
+                            verbose=0)
 
-        y_pred = model.predict([x_test[:, 0], x_test[:, 1]])
-        te_acc = compute_accuracy(y_test, y_pred)
-        y_pred = model.predict([x_train[:, 0], x_train[:, 1]])
-        tr_acc = compute_accuracy(y_train, y_pred)
+            acc_path = join(self.save_dir, f'history_acc_{num_pairs}-{num_bits}')
+            loss_path = join(self.save_dir, f'history_loss_{num_pairs}-{num_bits}')
 
-        print('* Accuracy on training set: %0.2f%%' % (100 * tr_acc))
-        print('* Accuracy on test set: %0.2f%%' % (100 * te_acc))
+            rnd_factor = randint(1, 100)
 
-        base_network.save(join(self.save_dir,
-                               f'model-num_bits:{num_bits}-num_pairs:'
-                               f'{num_pairs}.hdf5'))
-        results = {
-            'num_pairs': num_pairs,
-            'acc_train': tr_acc,
-            'acc_test': te_acc,
-            'mae': None,    # will be filled by testing method
-            'plot_paths': (acc_path, loss_path)
-        }
+            plot_history(history, (acc_path, loss_path),
+                         seed=num_bits*num_pairs+rnd_factor)
+
+            y_pred = model.predict([x_test[:, 0], x_test[:, 1]])
+            te_acc = compute_accuracy(y_test, y_pred)
+            y_pred = model.predict([x_train[:, 0], x_train[:, 1]])
+            tr_acc = compute_accuracy(y_train, y_pred)
+
+            print('* Accuracy on training set: %0.2f%%' % (100 * tr_acc))
+            print('* Accuracy on test set: %0.2f%%' % (100 * te_acc))
+
+            base_network.save(model_path)
+
+            results = {
+                'num_pairs': num_pairs,
+                'acc_train': tr_acc,
+                'acc_test': te_acc,
+                'mae': None,    # will be filled by testing method
+                'plot_paths': (acc_path, loss_path)
+            }
 
         return base_network, results
 
@@ -324,9 +331,10 @@ if __name__ == '__main__':
 
             model, training_results = validator.run_training(
                 num_bits=num_bits,
-                num_pairs=num_pairs
+                num_pairs=num_pairs,
+                # from_model=True
             )
-            
+
             continue
 
             validator.compute_neural_hashes(model)
