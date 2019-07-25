@@ -332,10 +332,8 @@ if __name__ == '__main__':
             model, training_results = validator.run_training(
                 num_bits=num_bits,
                 num_pairs=num_pairs,
-                # from_model=True
+                from_model=True
             )
-
-            continue
 
             validator.compute_neural_hashes(model)
             scores = validator.compare(num_bits)
@@ -352,6 +350,8 @@ if __name__ == '__main__':
                     join(validator.save_dir,
                          f'pairs:{num_pairs}-bits:{num_bits}.pkl'), 'wb') as f:
                 pickle.dump(final_results, f)
+
+            print(final_results)
 
             all_results[f'pairs:{num_pairs}-bits:{num_bits}'] = final_results
 
